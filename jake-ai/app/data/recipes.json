@@ -1,0 +1,32 @@
+{
+  "steak-cast-iron-beginner": {
+    "name": "Classic Cast Iron Steak",
+    "protein": "steak",
+    "method": "cast-iron",
+    "skill_level": "beginner",
+    "time": 30,
+    "ingredients": [
+      "1 ribeye or NY strip steak (1.5 inches thick)",
+      "Salt and black pepper",
+      "2 tbsp butter",
+      "2 cloves garlic",
+      "Fresh thyme"
+    ],
+    "instructions": [
+      "Pat steak bone dry—I mean DRY, apprentice",
+      "Season generously with salt and pepper",
+      "Let sit 30 minutes at room temp (patience)",
+      "Heat cast iron until smoking hot (500°F+)",
+      "Don't touch it for 3 minutes (trust the process)",
+      "Flip once, add butter and aromatics",
+      "Baste for 2-3 minutes",
+      "Rest 10 minutes before cutting (this is critical)"
+    ],
+    "jake_story": "First steak I ever cooked in cast iron, I moved it around like I was nervous. Ended up with no crust and a sad, gray steak. The iron needs TIME to work its magic. Same as life—sometimes you gotta let things sit and trust they'll turn out right.",
+    "tips": [
+      "Dry meat = good sear (water is the enemy)",
+      "High heat = don't panic",
+      "Resting = juices redistribute (biology!)"
+    ]
+  }
+}
