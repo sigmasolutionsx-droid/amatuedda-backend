@@ -35,9 +35,9 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/payments', require('./routes/payments'));
-app.use('/api/bonuses', require('./routes/bonuses'));
+app.use('/api/auth', require('./app/routes/auth'));
+app.use('/api/payments', require('./app/routes/payments'));
+app.use('/api/bonuses', require('./app/routes/bonuses'));
 app.use('/api/products', require('./app/routes/products'));
 
 // Error handling
