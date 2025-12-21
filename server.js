@@ -7,6 +7,8 @@ require('dotenv').config();
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet());
 app.use(cors());
@@ -34,6 +36,7 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
 
 app.use('/api/auth', require('./app/routes/auth'));
 app.use('/api/payments', require('./app/routes/payments'));
