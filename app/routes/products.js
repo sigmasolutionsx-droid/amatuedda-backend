@@ -4,6 +4,10 @@
 // ============================================================================
 const express = require('express');
 const router = express.Router();
+// TEST endpoint - remove after confirming it works
+router.get('/test', (req, res) => {
+  res.json({ success: true, message: 'Products route is loaded!' });
+});
 
 // ============================================================================
 // POST /api/products/analyze
