@@ -17,8 +17,8 @@ app.use(express.json());
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100
-  validate: false
+  limit: 100,
+  validate: { xForwardedForHeader: false }
 });
 app.use('/api/', limiter);
 
