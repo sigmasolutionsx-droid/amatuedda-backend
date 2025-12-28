@@ -8,47 +8,86 @@ async function analyzeNiche(nicheQuery) {
       messages: [
         {
           role: "system",
-          content: "You are a senior market research analyst specializing in niche validation. Provide comprehensive analysis with numerical scores (1-10), specific examples, and actionable recommendations."
+          content: "You are a senior market research analyst specializing in niche validation and competitive intelligence. Your expertise includes identifying market gaps and unmet customer needs that competitors are missing. Provide comprehensive analysis with numerical scores (1-10), specific examples, competitor gap analysis, and actionable recommendations."
         },
         {
           role: "user",
           content: `Analyze this niche: "${nicheQuery}"
 
 Provide:
+
 ## MARKET DEMAND (Score: X/10)
-- Search volume estimate
-- Growth trend
-- Market size
+- Estimated monthly search volume
+- Growth trajectory (% if estimable)
+- Market size estimate
+- Trend status: Growing/Stable/Declining
 
 ## COMPETITION (Score: X/10)  
 - Competition level (Low/Med/High)
-- Key competitors
+- Key competitors (name 3-5 specific companies/brands)
+- Market concentration (dominated or fragmented?)
 - Barriers to entry
 
+## COMPETITOR GAPS & OPPORTUNITIES
+**Critical Analysis:** What are competitors NOT doing that customers want?
+
+Identify 5-7 specific gaps:
+1. **[Gap Category]** - [Specific unmet need]
+   - What's missing: [Be specific]
+   - Customer pain point: [What frustration does this create?]
+   - Opportunity: [How to exploit this gap]
+   - Difficulty to execute: [Low/Medium/High]
+
+Examples of gap categories to look for:
+- Product/Service gaps (features, quality, variety)
+- Pricing gaps (premium tier, budget option, flexible payment)
+- Customer segment gaps (underserved demographics)
+- Geographic gaps (regions not covered)
+- Channel gaps (platforms not being used)
+- Content/Education gaps (missing resources)
+- Experience gaps (customer service, delivery, personalization)
+
 ## PROFITABILITY (Score: X/10)
-- Revenue potential
-- Monetization methods
-- Startup costs
+- Revenue potential (solo entrepreneur)
+- Revenue potential (small team 2-5 people)
+- Best monetization methods (ranked)
+- Typical pricing ranges
+- Gross margin expectations
+- Startup capital estimate
 
 ## TARGET AUDIENCE
-- Demographics
-- Pain points
-- Where they are online
+- Primary demographics (age, gender, income, location)
+- Core pain points being solved
+- Where they congregate online
+- Content preferences
+- Purchase triggers
 
 ## OPPORTUNITY ASSESSMENT (Overall Score: X/10)
-- Best for which entrepreneur
-- Success factors
-- Challenges
-- Quick-win strategies
+- Best for which type of entrepreneur
+- Required skills/background
+- Critical success factors (top 3)
+- Major challenges/risks (top 3)
+- Time to first revenue estimate
+- Quick-win entry strategies (3 specific tactics)
 
-## RELATED NICHES
-1-5 related opportunities
+## STRATEGIC RECOMMENDATIONS
+- Positioning & differentiation angle
+- Content strategy outline
+- Partnership opportunities
+- Related sub-niches to explore (5 options)
 
-Be honest about challenges.`
+## FINAL VERDICT
+2-3 sentence summary: Is this a good opportunity? For whom? What's the biggest factor to consider?
+
+**IMPORTANT:** 
+- Be brutally honest about challenges
+- Competitor gaps should be SPECIFIC and ACTIONABLE
+- Include real company names where possible
+- Provide concrete examples and numbers`
         }
       ],
       temperature: 0.35,
-      max_tokens: 3000
+      max_tokens: 3500
     });
 
     const analysisText = completion.choices[0].message.content;
