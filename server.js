@@ -43,6 +43,7 @@ app.use('/api/auth', require('./app/routes/auth'));
 app.use('/api/payments', require('./app/routes/payments'));
 app.use('/api/bonuses', require('./app/routes/bonuses'));
 app.use('/api/products', require('./app/routes/products'));
+app.use('/api/analysis', require('./app/routes/analysis'));
 
 // Error handling
 app.use((req, res) => {
