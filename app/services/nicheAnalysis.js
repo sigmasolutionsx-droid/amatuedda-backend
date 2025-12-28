@@ -87,7 +87,7 @@ Examples of gap categories to look for:
         }
       ],
       temperature: 0.35,
-      max_tokens: 3500
+      max_tokens: 4500
     });
 
     const analysisText = completion.choices[0].message.content;
