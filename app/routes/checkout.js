@@ -37,8 +37,8 @@ router.post('/create-checkout-session', async (req, res) => {
         price: priceId,
         quantity: 1
       }],
-      success_url: `https://httpstat.us/200?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `https://httpstat.us/200`,
+      success_url: `https://example.com?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://example.com`,
       customer_email: email, // Optional: pre-fill email if provided
       allow_promotion_codes: true,
       billing_address_collection: 'auto',
