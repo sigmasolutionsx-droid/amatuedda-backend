@@ -27,7 +27,7 @@ const TIER_LIMITS = {
 /**
  * Main webhook endpoint - receives all Stripe events
  */
-router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+router.post('/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -239,7 +239,7 @@ async function handleCheckoutCompleted(session) {
 /**
  * Health check endpoint
  */
-router.get('/webhook/stripe/health', (req, res) => {
+router.get('/stripe/health', (req, res) => {
   res.json({ 
     status: 'ok',
     webhook: 'active',
