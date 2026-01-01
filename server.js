@@ -12,6 +12,7 @@ app.set('trust proxy', 1);
 // Middleware
 app.use(helmet());
 app.use(cors());
+app.use('/webhook', require('./app/routes/stripe'));  // <-- ADD THIS LINE
 app.use(express.json());
 
 // Rate limiting
