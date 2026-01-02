@@ -11,23 +11,23 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY // Use service_role key for admin operations
 );
 
-// Price ID to tier mapping
+// Price ID to tier mapping - Elite and Oracle
 const PRICE_TIER_MAP = {
-  'price_1SkczEGoRkUwNcvtGT0rbyvN': 'pro',        // $19.99/month
-  'price_1Skd2DGoRkUwNcvt5t08bSNk': 'enterprise'  // $99.99/month
+  'price_1SkczEGoRkUwNcvtGT0rbyvN': 'elite',      // $19.99/month
+  'price_1Skd2DGoRkUwNcvt5t08bSNk': 'oracle'      // $99.99/month
 };
 
 // Tier search limits
 const TIER_LIMITS = {
   'free': 5,
-  'pro': 999999,      // Unlimited
-  'enterprise': 999999 // Unlimited + business models
+  'elite': 999999,   // Unlimited (Fair Use: 500/month)
+  'oracle': 999999   // Unlimited (Fair Use: 2000/month) + Business Models
 };
 
 /**
  * Main webhook endpoint - receives all Stripe events
  */
-router.post('/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -239,7 +239,7 @@ async function handleCheckoutCompleted(session) {
 /**
  * Health check endpoint
  */
-router.get('/stripe/health', (req, res) => {
+router.get('/webhook/stripe/health', (req, res) => {
   res.json({ 
     status: 'ok',
     webhook: 'active',
