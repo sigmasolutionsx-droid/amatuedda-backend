@@ -1,276 +1,266 @@
-// ============================================================================
-// AUTH ROUTES
-// Handles user authentication (signup, login, logout)
-// ============================================================================
+// routes/auth.js
+// Authentication routes for Scout-Faire free tier signup and login
 
 const express = require('express');
+const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const router = express.Router();
+const { createClient } = require('@supabase/supabase-js');
 
-// ============================================================================
-// POST /api/auth/signup
-// Create new user account
-// ============================================================================
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+const SALT_ROUNDS = 10;
+
+/**
+ * POST /signup
+ * Create new free tier user account
+ * (Mounted at /api/auth, so full path is /api/auth/signup)
+ */
 router.post('/signup', async (req, res) => {
+  const { email, password } = req.body;
+
+  // Validation
+  if (!email || !password) {
+    return res.json({
+      success: false,
+      error: 'Email and password are required'
+    });
+  }
+
+  if (password.length < 8) {
+    return res.json({
+      success: false,
+      error: 'Password must be at least 8 characters'
+    });
+  }
+
   try {
-    const { email, password, name } = req.body;
-    
-    // Validation
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Email and password are required'
-      });
-    }
-    
-    if (password.length < 8) {
-      return res.status(400).json({
-        success: false,
-        error: 'Password must be at least 8 characters'
-      });
-    }
-    
-    const supabase = req.app.locals.supabase;
-    
     // Check if user already exists
-    const { data: existing } = await supabase
-      .from('amatuedda_users')
-      .select('id')
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('email')
       .eq('email', email.toLowerCase())
       .single();
-    
-    if (existing) {
-      return res.status(400).json({
+
+    if (existingUser) {
+      return res.json({
         success: false,
-        error: 'Email already registered'
+        error: 'An account with this email already exists'
       });
     }
-    
+
     // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
-    
-    // Create user
-    const { data: user, error } = await supabase
-      .from('amatuedda_users')
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+    // Create user in Supabase
+    const { data: newUser, error } = await supabase
+      .from('users')
       .insert({
         email: email.toLowerCase(),
-        password_hash: passwordHash,
-        name: name || email.split('@')[0],
-        email_verified: false
+        tier: 'free',
+        searches_used_this_month: 0,
+        search_limit: 5,
+        period_start: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_active: new Date().toISOString(),
+        password_hash: passwordHash
       })
       .select()
       .single();
-    
-    if (error) throw error;
-    
-    // Generate JWT
+
+    if (error) {
+      console.error('Supabase error creating user:', error);
+      throw error;
+    }
+
+    // Generate JWT token
     const token = jwt.sign(
       { 
-        userId: user.id,
-        email: user.email 
+        userId: newUser.id, 
+        email: newUser.email,
+        tier: newUser.tier
       },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      JWT_SECRET,
+      { expiresIn: '30d' }
     );
-    
+
+    console.log(`✅ New free user created: ${email}`);
+
     res.json({
       success: true,
+      token: token,
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name
-      },
-      token
+        id: newUser.id,
+        email: newUser.email,
+        tier: newUser.tier,
+        searches_remaining: newUser.search_limit - newUser.searches_used_this_month
+      }
     });
-    
+
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({
+    res.json({
       success: false,
-      error: 'Failed to create account'
+      error: 'Failed to create account. Please try again.'
     });
   }
 });
 
-// ============================================================================
-// POST /api/auth/login
-// Login existing user
-// ============================================================================
-
+/**
+ * POST /login
+ * Login existing user
+ * (Mounted at /api/auth, so full path is /api/auth/login)
+ */
 router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  // Validation
+  if (!email || !password) {
+    return res.json({
+      success: false,
+      error: 'Email and password are required'
+    });
+  }
+
   try {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Email and password are required'
-      });
-    }
-    
-    const supabase = req.app.locals.supabase;
-    
-    // Get user
+    // Get user from database
     const { data: user, error } = await supabase
-      .from('amatuedda_users')
+      .from('users')
       .select('*')
       .eq('email', email.toLowerCase())
       .single();
-    
+
     if (error || !user) {
-      return res.status(401).json({
+      return res.json({
         success: false,
         error: 'Invalid email or password'
       });
     }
-    
+
     // Verify password
     const validPassword = await bcrypt.compare(password, user.password_hash);
-    
+
     if (!validPassword) {
-      return res.status(401).json({
+      return res.json({
         success: false,
         error: 'Invalid email or password'
       });
     }
-    
-    // Update last login
+
+    // Update last active
     await supabase
-      .from('amatuedda_users')
-      .update({ last_login_at: new Date().toISOString() })
+      .from('users')
+      .update({ last_active: new Date().toISOString() })
       .eq('id', user.id);
-    
-    // Generate JWT
+
+    // Generate JWT token
     const token = jwt.sign(
       { 
-        userId: user.id,
+        userId: user.id, 
         email: user.email,
-        isAdmin: user.is_admin || false
+        tier: user.tier
       },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      JWT_SECRET,
+      { expiresIn: '30d' }
     );
-    
+
+    console.log(`✅ User logged in: ${email}`);
+
     res.json({
       success: true,
+      token: token,
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
-        isAdmin: user.is_admin || false
-      },
-      token
+        tier: user.tier,
+        searches_remaining: user.search_limit - user.searches_used_this_month
+      }
     });
-    
+
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
+    res.json({
       success: false,
-      error: 'Failed to login'
+      error: 'Login failed. Please try again.'
     });
   }
 });
 
-// ============================================================================
-// GET /api/auth/me
-// Get current user (requires auth)
-// ============================================================================
-
+/**
+ * GET /me
+ * Get current user info (requires auth token)
+ * (Mounted at /api/auth, so full path is /api/auth/me)
+ */
 router.get('/me', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+
+  if (!token) {
+    return res.json({
+      success: false,
+      error: 'No authentication token provided'
+    });
+  }
+
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: 'No token provided'
-      });
-    }
-    
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    const supabase = req.app.locals.supabase;
-    
-    // Get user
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // Get fresh user data
     const { data: user, error } = await supabase
-      .from('amatuedda_users')
-      .select('id, email, name, is_admin, created_at')
+      .from('users')
+      .select('id, email, tier, searches_used_this_month, search_limit, period_start')
       .eq('id', decoded.userId)
       .single();
-    
+
     if (error || !user) {
-      return res.status(404).json({
+      return res.json({
         success: false,
         error: 'User not found'
       });
     }
-    
+
+    // Check if we need to reset monthly search count
+    const periodStart = new Date(user.period_start);
+    const now = new Date();
+    const daysSincePeriodStart = (now - periodStart) / (1000 * 60 * 60 * 24);
+
+    if (daysSincePeriodStart >= 30) {
+      // Reset monthly searches
+      await supabase
+        .from('users')
+        .update({
+          searches_used_this_month: 0,
+          period_start: now.toISOString()
+        })
+        .eq('id', user.id);
+
+      user.searches_used_this_month = 0;
+    }
+
     res.json({
       success: true,
-      user
+      user: {
+        id: user.id,
+        email: user.email,
+        tier: user.tier,
+        searches_remaining: user.search_limit - user.searches_used_this_month,
+        searches_used: user.searches_used_this_month,
+        search_limit: user.search_limit
+      }
     });
-    
-  } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid token'
-      });
-    }
-    
-    console.error('Get user error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get user'
-    });
-  }
-});
 
-// ============================================================================
-// MIDDLEWARE: Require authentication
-// ============================================================================
-
-const requireAuth = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: 'Authentication required'
-      });
-    }
-    
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    const supabase = req.app.locals.supabase;
-    
-    const { data: user, error } = await supabase
-      .from('amatuedda_users')
-      .select('id, email, name, is_admin')
-      .eq('id', decoded.userId)
-      .single();
-    
-    if (error || !user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid authentication'
-      });
-    }
-    
-    req.user = user;
-    next();
-    
   } catch (error) {
-    return res.status(401).json({
+    console.error('Auth verification error:', error);
+    res.json({
       success: false,
       error: 'Invalid or expired token'
     });
   }
-};
+});
 
 module.exports = router;
-module.exports.requireAuth = requireAuth;
