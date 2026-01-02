@@ -1,6 +1,5 @@
 // routes/checkout.js
 // Stripe Checkout Session creation endpoint
-
 const express = require('express');
 const router = express.Router();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -13,18 +12,19 @@ const PRICE_IDS = {
 
 /**
  * Create Stripe Checkout Session
- * Matches pricing.html endpoint: /api/checkout/create-checkout-session
+ * POST /create-checkout-session
+ * (Full path: /api/checkout/create-checkout-session)
  */
-router.post('/api/checkout/create-checkout-session', async (req, res) => {
+router.post('/create-checkout-session', async (req, res) => {
   const { tier } = req.body;
-
+  
   if (!tier) {
     return res.json({ 
       success: false, 
       error: 'Tier is required' 
     });
   }
-
+  
   const priceId = PRICE_IDS[tier];
   
   if (!priceId) {
@@ -33,7 +33,7 @@ router.post('/api/checkout/create-checkout-session', async (req, res) => {
       error: 'Invalid tier selected' 
     });
   }
-
+  
   try {
     // Create checkout session
     const session = await stripe.checkout.sessions.create({
@@ -53,7 +53,9 @@ router.post('/api/checkout/create-checkout-session', async (req, res) => {
       allow_promotion_codes: true, // Allow discount codes
       billing_address_collection: 'auto',
     });
-
+    
+    console.log(`✅ Checkout session created for ${tier} tier: ${session.id}`);
+    
     // Return format matching pricing.html expectation
     res.json({ 
       success: true, 
@@ -68,6 +70,19 @@ router.post('/api/checkout/create-checkout-session', async (req, res) => {
       message: error.message 
     });
   }
+});
+
+/**
+ * Health check endpoint
+ * GET /health
+ * (Full path: /api/checkout/health)
+ */
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'checkout',
+    timestamp: new Date().toISOString()
+  });
 });
 
 module.exports = router;
