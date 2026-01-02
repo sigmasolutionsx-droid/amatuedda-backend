@@ -99,9 +99,9 @@ router.post('/niche', async (req, res) => {
       });
     }
     
-    // Perform analysis
-    console.log(`Analyzing: "${niche}" for user ${userId}`);
-    const result = await analyzeNiche(niche.trim());
+    // Perform analysis with user tier
+    console.log(`Analyzing: "${niche}" for user ${userId} (tier: ${user.tier})`);
+    const result = await analyzeNiche(niche.trim(), user.tier);
     
     if (!result.success) {
       return res.status(500).json({ success: false, error: result.error });
