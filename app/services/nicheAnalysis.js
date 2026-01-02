@@ -2,7 +2,7 @@ const Groq = require('groq-sdk');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 /**
- * Analyze niche based on user tier
+ * Analyze niche based on user tier with formatted HTML output
  * @param {string} nicheQuery - The niche to analyze
  * @param {string} tier - User tier: 'free', 'elite', or 'oracle'
  */
@@ -23,12 +23,15 @@ async function analyzeNiche(nicheQuery, tier = 'free') {
       max_tokens: tier === 'free' ? 2000 : (tier === 'elite' ? 3500 : 4500)
     });
 
-    const analysisText = completion.choices[0].message.content;
-    const scores = extractScores(analysisText);
+    const analysisMarkdown = completion.choices[0].message.content;
+    const scores = extractScores(analysisMarkdown);
+    
+    // Convert markdown to formatted HTML based on tier
+    const analysisHTML = formatAnalysisAsHTML(analysisMarkdown, tier, nicheQuery);
     
     return {
       success: true,
-      analysis: analysisText,
+      analysis: analysisHTML,
       scores: scores,
       model: model,
       tier: tier,
@@ -46,9 +49,240 @@ async function analyzeNiche(nicheQuery, tier = 'free') {
 }
 
 /**
- * Get AI configuration based on user tier
+ * Convert markdown analysis to styled HTML
+ */
+function formatAnalysisAsHTML(markdown, tier, niche) {
+  const html = [];
+  
+  // Header
+  html.push(`
+    <div class="analysis-header">
+      <h2 class="niche-name">${escapeHtml(niche)}</h2>
+      <div class="tier-indicator tier-${tier}">${tier.toUpperCase()} ANALYSIS</div>
+    </div>
+  `);
+  
+  // Split into sections
+  const sections = markdown.split(/(?=##\s)/);
+  
+  sections.forEach(section => {
+    if (!section.trim()) return;
+    
+    const lines = section.split('\n');
+    const titleMatch = lines[0].match(/^##\s+(?:\d+\.\s+)?(.+?)(?:\s+\(Score:\s*\*?\*?(\d+(?:\.\d+)?)\s*\/\s*10\*?\*?\))?$/);
+    
+    if (titleMatch) {
+      const title = titleMatch[1].trim();
+      const score = titleMatch[2];
+      const content = lines.slice(1).join('\n');
+      
+      // Special formatting for different sections
+      if (title.includes('COMPETITOR GAPS') || title.includes('COMPETITOR GAP')) {
+        html.push(formatCompetitorGaps(content, tier));
+      } else if (title.includes('MONETIZATION')) {
+        html.push(formatMonetizationBlueprints(content, tier));
+      } else if (score) {
+        html.push(formatScoredSection(title, score, content, tier));
+      } else {
+        html.push(formatGenericSection(title, content, tier));
+      }
+    }
+  });
+  
+  return html.join('\n');
+}
+
+/**
+ * Format scored sections (Market Demand, Competition, etc.)
+ */
+function formatScoredSection(title, score, content, tier) {
+  const scoreColor = score >= 7 ? '#4ade80' : score >= 5 ? '#fbbf24' : '#f87171';
+  
+  return `
+    <div class="section scored-section">
+      <div class="section-header">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="score-badge" style="background: ${scoreColor}20; border-color: ${scoreColor}; color: ${scoreColor}">
+          ${score}/10
+        </div>
+      </div>
+      <div class="section-content">
+        ${formatMarkdown(content)}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Format competitor gaps section (ELITE & ORACLE only)
+ */
+function formatCompetitorGaps(content, tier) {
+  if (tier === 'free') return '';
+  
+  const html = [`
+    <div class="section gaps-section">
+      <div class="section-header">
+        <h3>🎯 Competitor Gaps & Opportunities</h3>
+        <div class="elite-badge">ELITE+</div>
+      </div>
+      <div class="section-content">
+  `];
+  
+  // Parse gap entries
+  const gapMatches = content.matchAll(/\|\s*(\d+)\s*\|\s*\*\*([^*]+)\*\*\s*\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|/g);
+  
+  for (const match of gapMatches) {
+    const [_, num, category, need, missing, pain, opportunity, difficulty] = match;
+    const difficultyLower = difficulty.trim().toLowerCase();
+    const difficultyColor = difficultyLower.includes('low') ? '#4ade80' : 
+                           difficultyLower.includes('high') ? '#f87171' : '#fbbf24';
+    
+    html.push(`
+      <div class="gap-card">
+        <div class="gap-header">
+          <span class="gap-number">${num}</span>
+          <h4>${escapeHtml(category.trim())}</h4>
+          <span class="difficulty-badge" style="background: ${difficultyColor}20; color: ${difficultyColor}">
+            ${escapeHtml(difficulty.trim())}
+          </span>
+        </div>
+        <div class="gap-details">
+          <div class="gap-item">
+            <strong>What's Missing:</strong> ${escapeHtml(missing.trim())}
+          </div>
+          <div class="gap-item">
+            <strong>Customer Pain:</strong> ${escapeHtml(pain.trim())}
+          </div>
+          <div class="gap-item">
+            <strong>Opportunity:</strong> ${escapeHtml(opportunity.trim())}
+          </div>
+        </div>
+      </div>
+    `);
+  }
+  
+  html.push(`
+      </div>
+    </div>
+  `);
+  
+  return html.join('\n');
+}
+
+/**
+ * Format monetization blueprints (ORACLE only)
+ */
+function formatMonetizationBlueprints(content, tier) {
+  if (tier !== 'oracle') return '';
+  
+  const html = [`
+    <div class="section monetization-section">
+      <div class="section-header">
+        <h3>💰 Monetization Blueprints</h3>
+        <div class="oracle-badge">ORACLE EXCLUSIVE</div>
+      </div>
+      <div class="section-content">
+  `];
+  
+  // Parse blueprint sections
+  const blueprintMatches = content.matchAll(/\*\*Gap #(\d+)[:\s–-]+([^*]+)\*\*/g);
+  
+  for (const match of blueprintMatches) {
+    const gapNum = match[1];
+    const gapName = match[2].trim();
+    
+    html.push(`
+      <div class="blueprint-card">
+        <div class="blueprint-header">
+          <h4>Gap #${gapNum}: ${escapeHtml(gapName)}</h4>
+        </div>
+        <div class="blueprint-content">
+    `);
+    
+    // Extract metrics table if present
+    const tableMatch = content.match(new RegExp(`Gap #${gapNum}[^|]+((?:\\|[^\\n]+\\n)+)`, 's'));
+    if (tableMatch) {
+      html.push(formatMarkdown(tableMatch[1]));
+    }
+    
+    html.push(`
+        </div>
+      </div>
+    `);
+  }
+  
+  html.push(`
+      </div>
+    </div>
+  `);
+  
+  return html.join('\n');
+}
+
+/**
+ * Format generic section
+ */
+function formatGenericSection(title, content, tier) {
+  return `
+    <div class="section">
+      <div class="section-header">
+        <h3>${escapeHtml(title)}</h3>
+      </div>
+      <div class="section-content">
+        ${formatMarkdown(content)}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Basic markdown to HTML conversion
+ */
+function formatMarkdown(text) {
+  if (!text) return '';
+  
+  let html = text
+    // Tables
+    .replace(/\|(.+)\|\n\|[-:\s|]+\|\n((?:\|.+\|\n?)+)/g, (match, header, rows) => {
+      const headers = header.split('|').filter(h => h.trim()).map(h => `<th>${escapeHtml(h.trim())}</th>`).join('');
+      const rowsHtml = rows.trim().split('\n').map(row => {
+        const cells = row.split('|').filter(c => c.trim()).map(c => `<td>${escapeHtml(c.trim())}</td>`).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+      return `<table class="data-table"><thead><tr>${headers}</tr></thead><tbody>${rowsHtml}</tbody></table>`;
+    })
+    // Bold
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // Lists
+    .replace(/^[\s]*[-•]\s+(.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+    // Line breaks
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  
+  return `<p>${html}</p>`;
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * Get AI configuration based on user tier (same as before)
  */
 function getAnalysisConfig(nicheQuery, tier) {
+  // Same configuration as before - keeping AI prompts identical
   const configs = {
     free: {
       model: "llama-3.1-8b-instant",
@@ -116,14 +350,11 @@ Provide:
 ## COMPETITOR GAPS & OPPORTUNITIES
 **Critical Analysis:** What are competitors NOT doing that customers want?
 
-Identify 5-7 specific gaps:
-1. **[Gap Category]** - [Specific unmet need]
-   - What's missing: [Be specific]
-   - Customer pain point: [What frustration does this create?]
-   - Opportunity: [How to exploit this gap]
-   - Difficulty to execute: [Low/Medium/High]
+Create a table with these columns and identify 5-7 specific gaps:
 
-Examples of gap categories to look for:
+| # | Gap Category | Specific Unmet Need | What's Missing | Customer Pain Point | Opportunity | Difficulty |
+
+Examples of gap categories:
 - Product/Service gaps (features, quality, variety)
 - Pricing gaps (premium tier, budget option, flexible payment)
 - Customer segment gaps (underserved demographics)
@@ -193,41 +424,28 @@ Provide:
 ## COMPETITOR GAPS & OPPORTUNITIES
 **Critical Analysis:** What are competitors NOT doing that customers want?
 
-Identify 5-7 specific gaps:
-1. **[Gap Category]** - [Specific unmet need]
-   - What's missing: [Be specific]
-   - Customer pain point: [What frustration does this create?]
-   - Opportunity: [How to exploit this gap]
-   - Difficulty to execute: [Low/Medium/High]
+Create a table with these columns and identify 5-7 specific gaps:
 
-Examples of gap categories to look for:
-- Product/Service gaps (features, quality, variety)
-- Pricing gaps (premium tier, budget option, flexible payment)
-- Customer segment gaps (underserved demographics)
-- Geographic gaps (regions not covered)
-- Channel gaps (platforms not being used)
-- Content/Education gaps (missing resources)
-- Experience gaps (customer service, delivery, personalization)
+| # | Gap Category | Specific Unmet Need | What's Missing | Customer Pain Point | Opportunity | Difficulty |
 
-## MONETIZATION BLUEPRINTS (For Each Gap)
-For the top 3 most promising gaps, provide:
+## MONETIZATION BLUEPRINTS
+For the top 3 most promising gaps, provide detailed monetization analysis in a table format:
 
 **Gap #1: [Name]**
-- **Revenue Model:** [Subscription/One-time/Freemium/Marketplace/etc.]
-- **Pricing Strategy:** [Specific price points with justification]
-- **Revenue Streams:** [Primary and secondary income sources]
-- **Customer Acquisition Cost (CAC) Estimate:** $X
-- **Lifetime Value (LTV) Estimate:** $X
-- **Unit Economics:** [Margins, break-even point]
-- **Go-to-Market Strategy:** [Specific launch tactics]
-- **Competitive Moat:** [How to defend this position]
-- **12-Month Revenue Projection:** $X with Y customers
 
-**Gap #2: [Name]**
-[Same structure as Gap #1]
+| Element | Detail |
+|---------|--------|
+| Revenue Model | [Subscription/One-time/Freemium/Marketplace/etc.] |
+| Pricing Strategy | [Specific price points with justification] |
+| Revenue Streams | [Primary and secondary income sources] |
+| CAC Estimate | $X |
+| LTV Estimate | $X |
+| Unit Economics | [Margins, break-even point] |
+| Go-to-Market | [Specific launch tactics] |
+| Competitive Moat | [How to defend this position] |
+| 12-Month Revenue Projection | $X with Y customers |
 
-**Gap #3: [Name]**
-[Same structure as Gap #1]
+[Repeat for Gap #2 and Gap #3]
 
 ## PROFITABILITY (Score: X/10)
 - Revenue potential (solo entrepreneur)
@@ -263,17 +481,6 @@ For the top 3 most promising gaps, provide:
 - Platform/channel priorities
 - Key metrics to track
 
-## BUSINESS MODEL CANVAS (One-Page Summary)
-- Value Proposition
-- Customer Segments
-- Channels
-- Customer Relationships
-- Revenue Streams
-- Key Resources
-- Key Activities
-- Key Partnerships
-- Cost Structure
-
 ## FINAL VERDICT
 2-3 sentence summary: Is this a good opportunity? For whom? What's the biggest factor to consider?
 
@@ -295,16 +502,16 @@ For the top 3 most promising gaps, provide:
 function extractScores(text) {
   const scores = { market: null, competition: null, profitability: null, overall: null };
   try {
-    const marketMatch = text.match(/MARKET DEMAND.*?Score:\s*(\d+)\/10/is);
+    const marketMatch = text.match(/MARKET DEMAND.*?Score:\s*\*?\*?(\d+)\s*\/\s*10\*?\*?/is);
     if (marketMatch) scores.market = parseInt(marketMatch[1]);
     
-    const competitionMatch = text.match(/COMPETITION.*?Score:\s*(\d+)\/10/is);
+    const competitionMatch = text.match(/COMPETITION.*?Score:\s*\*?\*?(\d+)\s*\/\s*10\*?\*?/is);
     if (competitionMatch) scores.competition = parseInt(competitionMatch[1]);
     
-    const profitabilityMatch = text.match(/PROFITABILITY.*?Score:\s*(\d+)\/10/is);
+    const profitabilityMatch = text.match(/PROFITABILITY.*?Score:\s*\*?\*?(\d+)\s*\/\s*10\*?\*?/is);
     if (profitabilityMatch) scores.profitability = parseInt(profitabilityMatch[1]);
     
-    const overallMatch = text.match(/OPPORTUNITY ASSESSMENT.*?Overall Score:\s*(\d+(?:\.\d+)?)\/10/is);
+    const overallMatch = text.match(/OPPORTUNITY ASSESSMENT.*?Overall Score:\s*\*?\*?(\d+(?:\.\d+)?)\s*\/\s*10\*?\*?/is);
     if (overallMatch) scores.overall = parseFloat(overallMatch[1]);
   } catch (e) {
     console.error('Score extraction error:', e);
