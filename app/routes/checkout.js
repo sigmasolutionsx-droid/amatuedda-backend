@@ -5,10 +5,10 @@ const express = require('express');
 const router = express.Router();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// Price ID mapping
+// Price ID mapping - Elite and Oracle tiers
 const PRICE_IDS = {
-  'pro': 'price_1SkczEGoRkUwNcvtGT0rbyvN',        // $19.99/month
-  'enterprise': 'price_1Skd2DGoRkUwNcvt5t08bSNk'  // $99.99/month
+  'elite': 'price_1SkczEGoRkUwNcvtGT0rbyvN',      // $19.99/month
+  'oracle': 'price_1Skd2DGoRkUwNcvt5t08bSNk'      // $99.99/month
 };
 
 /**
