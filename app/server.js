@@ -1,0 +1,68 @@
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config();
+
+const app = express();
+
+app.set('trust proxy', 1);
+
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use('/webhook', require('./app/routes/stripe'));  // <-- ADD THIS LINE
+app.use(express.json());
+
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  validate: { xForwardedForHeader: false }
+});
+app.use('/api/', limiter);
+
+// Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
+app.locals.supabase = supabase;
+
+// Routes
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    service: 'AmatuEdda',
+    timestamp: new Date().toISOString()
+  });
+});
+
+
+app.use('/api/auth', require('./app/routes/auth'));
+app.use('/api/payments', require('./app/routes/payments'));
+app.use('/api/bonuses', require('./app/routes/bonuses'));
+app.use('/api/products', require('./app/routes/products'));
+app.use('/api/analysis', require('./app/routes/analysis'));
+app.use('/api/checkout', require('./app/routes/checkout'));
+app.use('/api/niches', require('./app/routes/niches'));
+
+// Error handling
+app.use((req, res) => {
+  res.status(404).json({ success: false, error: 'Not found' });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ success: false, error: err.message });
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`\n🚀 AmatuEdda running on port ${PORT}`);
+  console.log(`✅ Database: ${process.env.SUPABASE_URL ? 'Connected' : 'Not configured'}`);
+  console.log(`✅ Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Configured' : 'Not configured'}\n`);
+});
