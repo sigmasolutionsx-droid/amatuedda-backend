@@ -15,6 +15,7 @@ app.use(cors());
 app.use('/webhook', require('./app/routes/stripe'));  // <-- ADD THIS LINE
 app.use(express.json());
 
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -46,6 +47,7 @@ app.use('/api/bonuses', require('./app/routes/bonuses'));
 app.use('/api/products', require('./app/routes/products'));
 app.use('/api/analysis', require('./app/routes/analysis'));
 app.use('/api/checkout', require('./app/routes/checkout'));
+app.use('/api/niches', require('./app/routes/niches'));
 
 // Error handling
 app.use((req, res) => {
