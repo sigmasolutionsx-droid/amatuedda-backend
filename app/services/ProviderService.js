@@ -1,30 +1,39 @@
 // backend/app/services/ProviderService.js
-// Handles all social media provider integrations
+// Stable provider setup - Nitter is optional fallback
+// Primary viral sources: TikTok + Instagram (both FREE and STABLE)
 
 const axios = require('axios');
-const snoowrap = require('snoowrap'); // Reddit
-const { TwitterApi } = require('twitter-api-v2'); // X/Twitter
-// Add other provider SDKs as needed
+const cheerio = require('cheerio');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 
 class ProviderService {
   constructor() {
     this.providers = {
-      reddit: this.fetchReddit.bind(this),
-      x: this.fetchTwitter.bind(this),
-      youtube: this.fetchYouTube.bind(this),
-      googletrends: this.fetchGoogleTrends.bind(this),
-      pinterest: this.fetchPinterest.bind(this),
+      reddit: this.fetchRedditPRAW.bind(this),        // FREE, STABLE ✅
+      tiktok: this.fetchTikTok.bind(this),            // FREE, STABLE ✅ (Primary viral)
+      instagram: this.fetchInstagramPicuki.bind(this), // FREE, STABLE ✅ (Primary viral)
+      youtube: this.fetchYouTube.bind(this),          // FREE, STABLE ✅
+      googletrends: this.fetchGoogleTrends.bind(this), // FREE, STABLE ✅
+      x: this.fetchTwitterOptional.bind(this),        // OPTIONAL (tries Nitter, gracefully fails)
+      pinterest: this.fetchPinterestApify.bind(this), // Verification only
       linkedin: this.fetchLinkedIn.bind(this),
       medium: this.fetchMedium.bind(this),
-      instagram: this.fetchInstagram.bind(this),
-      tiktok: this.fetchTikTok.bind(this),
       beehiiv: this.fetchBeehiiv.bind(this)
     };
+
+    // Nitter instances (optional - if they work, great! if not, no problem)
+    this.nitterInstances = [
+      'https://nitter.net',
+      'https://nitter.it',
+      'https://nitter.unixfox.eu',
+      'https://nitter.fdn.fr'
+    ];
+    this.currentNitterIndex = 0;
+    this.nitterWorkingStatus = true; // Assume working until proven otherwise
   }
 
-  /**
-   * Main fetch method - routes to appropriate provider
-   */
   async fetchData(providerName, query, credentials, filters = {}) {
     const fetchFunction = this.providers[providerName];
     
@@ -42,154 +51,384 @@ class ProviderService {
       }));
     } catch (error) {
       console.error(`${providerName} fetch error:`, error.message);
+      
+      // For Nitter/Twitter, fail gracefully
+      if (providerName === 'x') {
+        console.log('⚠️  Twitter/X unavailable, continuing with other providers...');
+        return []; // Empty array, not an error
+      }
+      
       throw error;
     }
   }
 
   // =====================================================
-  // REDDIT
+  // TWITTER/X - OPTIONAL (Graceful Degradation)
   // =====================================================
 
-  async fetchReddit(query, credentials, filters) {
-    try {
-      const reddit = new snoowrap({
-        userAgent: 'SkyPath Niche Finder',
-        clientId: credentials.clientId || process.env.REDDIT_CLIENT_ID,
-        clientSecret: credentials.clientSecret || process.env.REDDIT_CLIENT_SECRET,
-        username: credentials.username || process.env.REDDIT_USERNAME,
-        password: credentials.password || process.env.REDDIT_PASSWORD
-      });
+  async fetchTwitterOptional(query, credentials, filters) {
+    // If Nitter is known to be broken, skip it entirely
+    if (!this.nitterWorkingStatus) {
+      console.log('⏭️  Nitter is disabled, skipping Twitter/X');
+      return [];
+    }
 
+    try {
+      console.log(`🐦 Attempting Twitter/X via Nitter (optional)...`);
+      
+      const results = [];
+      const limit = filters.limit || 50;
+      let tweets = null;
+
+      // Try just the first 2 instances quickly
+      for (let i = 0; i < 2; i++) {
+        const instance = this.nitterInstances[i];
+
+        try {
+          tweets = await Promise.race([
+            this.scrapeNitterInstance(instance, query, limit),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Timeout')), 5000) // 5 sec timeout
+            )
+          ]);
+          
+          if (tweets && tweets.length > 0) {
+            console.log(`✅ Twitter/X: Got ${tweets.length} tweets from ${instance}`);
+            break;
+          }
+        } catch (instanceError) {
+          console.log(`  ✗ ${instance} failed, trying next...`);
+          continue;
+        }
+      }
+
+      // If no tweets found, mark Nitter as broken and move on
+      if (!tweets || tweets.length === 0) {
+        console.log('⚠️  Nitter unavailable. Disabling Twitter/X for this session.');
+        this.nitterWorkingStatus = false;
+        return [];
+      }
+
+      // Convert to standardized format
+      for (const tweet of tweets) {
+        results.push({
+          platform_id: tweet.id,
+          content: tweet.text,
+          author: tweet.username,
+          source_url: `https://twitter.com/${tweet.username}/status/${tweet.id}`,
+          upvotes: tweet.likes || 0,
+          comments: tweet.replies || 0,
+          shares: tweet.retweets || 0,
+          engagement_score: (tweet.likes || 0) + (tweet.retweets || 0) * 2 + (tweet.replies || 0),
+          mention_type: 'post',
+          posted_at: tweet.date || new Date().toISOString(),
+          raw_data: { source: 'nitter' }
+        });
+      }
+
+      return results;
+
+    } catch (error) {
+      console.log(`⚠️  Twitter/X fetch failed: ${error.message}`);
+      this.nitterWorkingStatus = false; // Disable for this session
+      return []; // Return empty, don't throw
+    }
+  }
+
+  async scrapeNitterInstance(instance, query, limit) {
+    const searchUrl = `${instance}/search?f=tweets&q=${encodeURIComponent(query)}`;
+    
+    const response = await axios.get(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml'
+      },
+      timeout: 5000
+    });
+
+    const $ = cheerio.load(response.data);
+    const tweets = [];
+
+    $('.timeline-item').each((i, element) => {
+      if (tweets.length >= limit) return false;
+
+      try {
+        const $tweet = $(element);
+        
+        const username = $tweet.find('.username').first().text().trim().replace('@', '');
+        const tweetLink = $tweet.find('.tweet-link').attr('href');
+        const tweetId = tweetLink ? tweetLink.split('/').pop().replace('#m', '') : null;
+        const text = $tweet.find('.tweet-content').text().trim();
+        
+        const statsText = $tweet.find('.tweet-stats').text();
+        const likes = this.extractNumber(statsText, /(\d+(?:,\d+)*)\s*(?:Likes?|♥)/i);
+        const retweets = this.extractNumber(statsText, /(\d+(?:,\d+)*)\s*(?:Retweets?|🔁)/i);
+        const replies = this.extractNumber(statsText, /(\d+(?:,\d+)*)\s*(?:Replies?|💬)/i);
+
+        if (username && tweetId && text) {
+          tweets.push({
+            id: tweetId,
+            username,
+            text,
+            date: new Date().toISOString(),
+            likes,
+            retweets,
+            replies
+          });
+        }
+      } catch (parseError) {
+        // Skip malformed tweets
+      }
+    });
+
+    return tweets;
+  }
+
+  // =====================================================
+  // REDDIT - PRAW (FREE, STABLE, PRIMARY)
+  // =====================================================
+
+  async fetchRedditPRAW(query, credentials, filters) {
+    try {
       const results = [];
       const limit = filters.limit || 100;
-      const timeFilter = filters.timeFilter || 'month'; // hour, day, week, month, year, all
+      const timeFilter = filters.timeFilter || 'month';
 
-      // Search posts
-      const posts = await reddit.search({
-        query,
-        time: timeFilter,
-        limit: Math.floor(limit * 0.7)
-      });
+      console.log(`🐍 Reddit via PRAW: "${query}"`);
+
+      const hasPRAW = await this.isPythonPRAWAvailable();
+      
+      if (!hasPRAW) {
+        throw new Error('PRAW not installed. Run: pip3 install praw');
+      }
+
+      const pythonScript = `
+import praw
+import json
+from datetime import datetime
+
+reddit = praw.Reddit(
+    client_id="${credentials.clientId || process.env.REDDIT_CLIENT_ID}",
+    client_secret="${credentials.clientSecret || process.env.REDDIT_CLIENT_SECRET}",
+    user_agent="SkyPath/1.0"
+)
+
+results = []
+
+for submission in reddit.subreddit('all').search("${query.replace(/"/g, '\\"')}", limit=${limit}, time_filter="${timeFilter}"):
+    post = {
+        'id': submission.id,
+        'title': submission.title,
+        'selftext': submission.selftext[:1000] if submission.selftext else '',
+        'author': str(submission.author) if submission.author else 'deleted',
+        'subreddit': submission.subreddit.display_name,
+        'permalink': f"https://reddit.com{submission.permalink}",
+        'score': submission.score,
+        'num_comments': submission.num_comments,
+        'created_utc': submission.created_utc
+    }
+    results.append(post)
+
+print(json.dumps(results))
+`;
+
+      const { stdout } = await execAsync(
+        `python3 -c '${pythonScript.replace(/'/g, "'\"'\"'")}'`,
+        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
+      );
+
+      const posts = JSON.parse(stdout);
 
       for (const post of posts) {
         results.push({
           platform_id: post.id,
           content: `${post.title}\n\n${post.selftext}`,
-          author: post.author.name,
-          source_url: `https://reddit.com${post.permalink}`,
-          community: post.subreddit.display_name,
+          author: post.author,
+          source_url: post.permalink,
+          community: post.subreddit,
           thread_title: post.title,
-          upvotes: post.ups,
+          upvotes: post.score,
           comments: post.num_comments,
-          engagement_score: post.ups + post.num_comments,
+          engagement_score: post.score + post.num_comments,
           mention_type: 'post',
-          posted_at: new Date(post.created_utc * 1000).toISOString(),
-          raw_data: {
-            score: post.score,
-            upvote_ratio: post.upvote_ratio,
-            gilded: post.gilded,
-            over_18: post.over_18
-          }
+          posted_at: new Date(post.created_utc * 1000).toISOString()
         });
-
-        // Fetch top comments for additional context
-        if (filters.includeComments && post.num_comments > 0) {
-          try {
-            await post.expandReplies({ limit: 5, depth: 1 });
-            const topComments = post.comments.slice(0, 5);
-
-            for (const comment of topComments) {
-              if (comment.body && comment.body !== '[deleted]' && comment.body !== '[removed]') {
-                results.push({
-                  platform_id: comment.id,
-                  content: comment.body,
-                  author: comment.author.name,
-                  source_url: `https://reddit.com${comment.permalink}`,
-                  community: post.subreddit.display_name,
-                  parent_id: post.id,
-                  thread_title: post.title,
-                  upvotes: comment.ups,
-                  comments: 0,
-                  engagement_score: comment.ups,
-                  mention_type: 'comment',
-                  posted_at: new Date(comment.created_utc * 1000).toISOString(),
-                  raw_data: { score: comment.score }
-                });
-              }
-            }
-          } catch (commentError) {
-            console.error('Error fetching comments:', commentError);
-          }
-        }
       }
 
+      console.log(`✅ Reddit: ${results.length} posts`);
       return results;
 
     } catch (error) {
-      console.error('Reddit API error:', error);
+      console.error('Reddit PRAW error:', error);
       throw new Error(`Reddit fetch failed: ${error.message}`);
     }
   }
 
-  // =====================================================
-  // X (TWITTER)
-  // =====================================================
-
-  async fetchTwitter(query, credentials, filters) {
+  async isPythonPRAWAvailable() {
     try {
-      const client = new TwitterApi({
-        appKey: credentials.apiKey || process.env.TWITTER_API_KEY,
-        appSecret: credentials.apiSecret || process.env.TWITTER_API_SECRET,
-        accessToken: credentials.accessToken || process.env.TWITTER_ACCESS_TOKEN,
-        accessSecret: credentials.accessSecret || process.env.TWITTER_ACCESS_SECRET
-      });
-
-      const results = [];
-      const limit = filters.limit || 100;
-
-      const tweets = await client.v2.search(query, {
-        max_results: Math.min(limit, 100),
-        'tweet.fields': ['created_at', 'public_metrics', 'author_id', 'conversation_id'],
-        'user.fields': ['username', 'name'],
-        expansions: ['author_id']
-      });
-
-      for (const tweet of tweets.data) {
-        const author = tweets.includes?.users?.find(u => u.id === tweet.author_id);
-        
-        results.push({
-          platform_id: tweet.id,
-          content: tweet.text,
-          author: author?.username || 'unknown',
-          source_url: `https://twitter.com/${author?.username}/status/${tweet.id}`,
-          upvotes: tweet.public_metrics?.like_count || 0,
-          comments: tweet.public_metrics?.reply_count || 0,
-          shares: tweet.public_metrics?.retweet_count || 0,
-          views: tweet.public_metrics?.impression_count || 0,
-          engagement_score: (
-            (tweet.public_metrics?.like_count || 0) +
-            (tweet.public_metrics?.retweet_count || 0) * 2 +
-            (tweet.public_metrics?.reply_count || 0)
-          ),
-          mention_type: 'post',
-          posted_at: tweet.created_at,
-          raw_data: {
-            conversation_id: tweet.conversation_id,
-            metrics: tweet.public_metrics
-          }
-        });
-      }
-
-      return results;
-
-    } catch (error) {
-      console.error('Twitter API error:', error);
-      throw new Error(`Twitter fetch failed: ${error.message}`);
+      await execAsync('python3 -c "import praw; print(\'ok\')"');
+      return true;
+    } catch {
+      return false;
     }
   }
 
   // =====================================================
-  // YOUTUBE
+  // TIKTOK - PRIMARY VIRAL SOURCE (FREE, STABLE)
+  // =====================================================
+
+  async fetchTikTok(query, credentials, filters) {
+    try {
+      console.log(`🎵 TikTok (Python API): "${query}"`);
+      
+      const limit = filters.limit || 50;
+      const results = [];
+
+      // Check if TikTok API is available
+      const hasTikTokApi = await this.isTikTokApiAvailable();
+      
+      if (!hasTikTokApi) {
+        throw new Error('TikTok-Api not installed. Run: pip3 install TikTokApi playwright && playwright install chromium');
+      }
+
+      const pythonScript = `
+import json
+from TikTokApi import TikTokApi
+import asyncio
+
+async def search_tiktok():
+    results = []
+    async with TikTokApi() as api:
+        async for video in api.search.videos("${query.replace(/"/g, '\\"')}", count=${limit}):
+            video_data = {
+                'id': video.id,
+                'description': video.desc if hasattr(video, 'desc') else '',
+                'author': video.author.username if hasattr(video, 'author') else 'unknown',
+                'likes': video.stats.digg_count if hasattr(video, 'stats') else 0,
+                'comments': video.stats.comment_count if hasattr(video, 'stats') else 0,
+                'shares': video.stats.share_count if hasattr(video, 'stats') else 0,
+                'views': video.stats.play_count if hasattr(video, 'stats') else 0,
+                'created_time': video.create_time if hasattr(video, 'create_time') else 0
+            }
+            results.append(video_data)
+    
+    return results
+
+results = asyncio.run(search_tiktok())
+print(json.dumps(results))
+`;
+
+      const { stdout } = await execAsync(
+        `python3 -c '${pythonScript.replace(/'/g, "'\"'\"'")}'`,
+        { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+      );
+
+      const videos = JSON.parse(stdout);
+
+      for (const video of videos) {
+        results.push({
+          platform_id: video.id,
+          content: video.description,
+          author: video.author,
+          source_url: `https://www.tiktok.com/@${video.author}/video/${video.id}`,
+          upvotes: video.likes,
+          comments: video.comments,
+          shares: video.shares,
+          views: video.views,
+          engagement_score: video.likes + (video.comments * 2) + (video.shares * 3),
+          mention_type: 'video',
+          posted_at: video.created_time ? new Date(video.created_time * 1000).toISOString() : new Date().toISOString()
+        });
+      }
+
+      console.log(`✅ TikTok: ${results.length} videos`);
+      return results;
+
+    } catch (error) {
+      console.error('TikTok API error:', error);
+      throw new Error(`TikTok fetch failed: ${error.message}`);
+    }
+  }
+
+  async isTikTokApiAvailable() {
+    try {
+      await execAsync('python3 -c "from TikTokApi import TikTokApi; print(\'ok\')"');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // =====================================================
+  // INSTAGRAM - PRIMARY VIRAL SOURCE (FREE, STABLE)
+  // =====================================================
+
+  async fetchInstagramPicuki(query, credentials, filters) {
+    try {
+      console.log(`📸 Instagram via Picuki: "${query}"`);
+      
+      const limit = filters.limit || 50;
+      const results = [];
+
+      // Search hashtag on Picuki
+      const hashtag = query.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+      const searchUrl = `https://www.picuki.com/tag/${hashtag}`;
+
+      const response = await axios.get(searchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'text/html,application/xhtml+xml'
+        },
+        timeout: 10000
+      });
+
+      const $ = cheerio.load(response.data);
+      
+      $('.photo-list .box-photo').each((i, element) => {
+        if (results.length >= limit) return false;
+
+        try {
+          const $post = $(element);
+          
+          const postLink = $post.find('a').attr('href');
+          const postId = postLink ? postLink.split('/').pop() : null;
+          const imageUrl = $post.find('img').attr('src');
+          const caption = $post.find('.photo-description').text().trim();
+          
+          const statsText = $post.find('.photo-stats').text();
+          const likes = this.extractNumber(statsText, /(\d+(?:\.\d+)?[KM]?)\s*likes/i);
+          const comments = this.extractNumber(statsText, /(\d+(?:\.\d+)?[KM]?)\s*comments/i);
+
+          if (postId) {
+            results.push({
+              platform_id: postId,
+              content: caption,
+              author: 'unknown',
+              source_url: `https://www.instagram.com/p/${postId}`,
+              upvotes: likes,
+              comments: comments,
+              engagement_score: likes + (comments * 2),
+              mention_type: 'post',
+              posted_at: new Date().toISOString(),
+              raw_data: { image_url: imageUrl }
+            });
+          }
+        } catch (parseError) {
+          // Skip malformed posts
+        }
+      });
+
+      console.log(`✅ Instagram: ${results.length} posts`);
+      return results;
+
+    } catch (error) {
+      console.error('Instagram Picuki error:', error);
+      throw new Error(`Instagram fetch failed: ${error.message}`);
+    }
+  }
+
+  // =====================================================
+  // YOUTUBE (FREE, STABLE)
   // =====================================================
 
   async fetchYouTube(query, credentials, filters) {
@@ -198,7 +437,6 @@ class ProviderService {
       const results = [];
       const limit = filters.limit || 50;
 
-      // Search videos
       const searchResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
         params: {
           part: 'snippet',
@@ -212,7 +450,6 @@ class ProviderService {
 
       const videoIds = searchResponse.data.items.map(item => item.id.videoId).join(',');
 
-      // Get video statistics
       const statsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
         params: {
           part: 'statistics,snippet',
@@ -232,61 +469,13 @@ class ProviderService {
           upvotes: parseInt(video.statistics.likeCount || 0),
           comments: parseInt(video.statistics.commentCount || 0),
           views: parseInt(video.statistics.viewCount || 0),
-          engagement_score: (
-            parseInt(video.statistics.likeCount || 0) +
-            parseInt(video.statistics.commentCount || 0) * 2
-          ),
+          engagement_score: parseInt(video.statistics.likeCount || 0) + parseInt(video.statistics.commentCount || 0) * 2,
           mention_type: 'video',
-          posted_at: video.snippet.publishedAt,
-          raw_data: {
-            tags: video.snippet.tags,
-            category: video.snippet.categoryId,
-            statistics: video.statistics
-          }
+          posted_at: video.snippet.publishedAt
         });
       }
 
-      // Optionally fetch comments for top videos
-      if (filters.includeComments) {
-        const topVideos = results.slice(0, 10);
-        
-        for (const video of topVideos) {
-          try {
-            const commentsResponse = await axios.get('https://www.googleapis.com/youtube/v3/commentThreads', {
-              params: {
-                part: 'snippet',
-                videoId: video.platform_id,
-                maxResults: 20,
-                order: 'relevance',
-                key: apiKey
-              }
-            });
-
-            for (const thread of commentsResponse.data.items) {
-              const comment = thread.snippet.topLevelComment.snippet;
-              
-              results.push({
-                platform_id: thread.id,
-                content: comment.textDisplay,
-                author: comment.authorDisplayName,
-                source_url: `https://www.youtube.com/watch?v=${video.platform_id}&lc=${thread.id}`,
-                community: video.community,
-                parent_id: video.platform_id,
-                thread_title: video.thread_title,
-                upvotes: comment.likeCount || 0,
-                comments: thread.snippet.totalReplyCount || 0,
-                engagement_score: comment.likeCount || 0,
-                mention_type: 'comment',
-                posted_at: comment.publishedAt,
-                raw_data: { videoId: video.platform_id }
-              });
-            }
-          } catch (commentError) {
-            console.error('Error fetching YouTube comments:', commentError);
-          }
-        }
-      }
-
+      console.log(`✅ YouTube: ${results.length} videos`);
       return results;
 
     } catch (error) {
@@ -296,7 +485,7 @@ class ProviderService {
   }
 
   // =====================================================
-  // GOOGLE TRENDS
+  // GOOGLE TRENDS (FREE, STABLE)
   // =====================================================
 
   async fetchGoogleTrends(query, credentials, filters) {
@@ -304,7 +493,6 @@ class ProviderService {
       const googleTrends = require('google-trends-api');
       const results = [];
 
-      // Interest over time
       const interestData = await googleTrends.interestOverTime({
         keyword: query,
         startTime: filters.startDate || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
@@ -312,16 +500,7 @@ class ProviderService {
       });
 
       const parsed = JSON.parse(interestData);
-      
-      // Related queries
-      const relatedData = await googleTrends.relatedQueries({
-        keyword: query,
-        geo: filters.region || 'US'
-      });
 
-      const relatedParsed = JSON.parse(relatedData);
-
-      // Format as mention
       results.push({
         platform_id: `trend_${Date.now()}`,
         content: `Google Trends data for: ${query}`,
@@ -330,11 +509,11 @@ class ProviderService {
         mention_type: 'article',
         posted_at: new Date().toISOString(),
         raw_data: {
-          timeline: parsed.default?.timelineData || [],
-          related_queries: relatedParsed.default?.rankedList || []
+          timeline: parsed.default?.timelineData || []
         }
       });
 
+      console.log(`✅ Google Trends: Data collected`);
       return results;
 
     } catch (error) {
@@ -344,80 +523,39 @@ class ProviderService {
   }
 
   // =====================================================
-  // PINTEREST - Placeholder
+  // PINTEREST (Verification Only via Apify)
   // =====================================================
 
-  async fetchPinterest(query, credentials, filters) {
-    // Pinterest API integration
-    // Note: Pinterest API requires business account and approval
-    console.warn('Pinterest integration not yet implemented');
-    return [];
+  async fetchPinterestApify(query, credentials, filters) {
+    // This should only be called by PinterestVerificationService
+    // Not used in continuous scraping
+    throw new Error('Pinterest is verification-only. Use PinterestVerificationService instead.');
   }
 
   // =====================================================
-  // LINKEDIN - Placeholder
+  // HELPER METHODS
   // =====================================================
 
-  async fetchLinkedIn(query, credentials, filters) {
-    // LinkedIn API integration
-    console.warn('LinkedIn integration not yet implemented');
-    return [];
-  }
-
-  // =====================================================
-  // MEDIUM - Web Scraping (since no official API)
-  // =====================================================
-
-  async fetchMedium(query, credentials, filters) {
-    try {
-      // Medium doesn't have a public API, so we'll use RSS
-      const Parser = require('rss-parser');
-      const parser = new Parser();
-      
-      const results = [];
-      const searchUrl = `https://medium.com/search/posts?q=${encodeURIComponent(query)}`;
-      
-      // Note: This is a simplified version. In production, consider using Medium's partner API
-      // or a proper web scraping solution
-      
-      console.warn('Medium integration uses limited RSS - consider Medium Partner API for production');
-      
-      return results;
-
-    } catch (error) {
-      console.error('Medium fetch error:', error);
-      return [];
+  extractNumber(text, regex) {
+    if (!text) return 0;
+    
+    const match = text.match(regex);
+    if (!match) return 0;
+    
+    const numStr = match[1].replace(/,/g, '');
+    let num = parseFloat(numStr);
+    
+    if (text.includes('K') || text.includes('k')) {
+      num *= 1000;
+    } else if (text.includes('M') || text.includes('m')) {
+      num *= 1000000;
     }
+    
+    return Math.floor(num);
   }
 
-  // =====================================================
-  // INSTAGRAM - Placeholder
-  // =====================================================
-
-  async fetchInstagram(query, credentials, filters) {
-    // Instagram Graph API integration
-    console.warn('Instagram integration not yet implemented');
-    return [];
-  }
-
-  // =====================================================
-  // TIKTOK - Placeholder
-  // =====================================================
-
-  async fetchTikTok(query, credentials, filters) {
-    // TikTok API integration
-    console.warn('TikTok integration not yet implemented');
-    return [];
-  }
-
-  // =====================================================
-  // BEEHIIV - Placeholder
-  // =====================================================
-
-  async fetchBeehiiv(query, credentials, filters) {
-    // Beehiiv API integration
-    console.warn('Beehiiv integration not yet implemented');
-    return [];
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
