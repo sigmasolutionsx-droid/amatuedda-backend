@@ -329,7 +329,7 @@ Provide a focused analysis covering:
     },
     
     elite: {
-      model: "openai/gpt-oss-20b",
+      model: "llama-3.3-70b-versatile",
       systemPrompt: "You are a senior market research analyst specializing in niche validation and competitive intelligence. Your expertise includes identifying market gaps and unmet customer needs that competitors are missing. Provide comprehensive analysis with numerical scores (1-10), specific examples, and actionable competitor gap analysis.",
       userPrompt: `Analyze this niche: "${nicheQuery}"
 
@@ -403,7 +403,7 @@ Examples of gap categories:
     },
     
     oracle: {
-      model: "openai/gpt-oss-120b",
+      model: "llama-3.3-70b-versatile",
       systemPrompt: "You are an elite market research strategist with deep expertise in niche validation, competitive intelligence, and business model design. You identify not just what competitors are missing, but exactly how to monetize those gaps profitably. Provide comprehensive analysis with numerical scores (1-10), specific examples, detailed competitor gap analysis, and complete monetization blueprints.",
       userPrompt: `Analyze this niche: "${nicheQuery}"
 

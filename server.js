@@ -30,19 +30,20 @@ const supabase = createClient(
 );
 app.locals.supabase = supabase;
 
+const { requireAuth } = require('./middleware/auth');
+
 // Routes
 app.get('/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'ok',
     service: 'AmatuEdda',
     timestamp: new Date().toISOString()
   });
 });
 
-
 app.use('/api/auth', require('./app/routes/auth'));
 app.use('/api/payments', require('./app/routes/payments'));
-app.use('/api/bonuses', require('./app/routes/bonuses'));
+app.use('/api/bonuses', requireAuth, require('./app/routes/bonuses'));
 app.use('/api/products', require('./app/routes/products'));
 app.use('/api/analysis', require('./app/routes/analysis'));
 app.use('/api/checkout', require('./app/routes/checkout'));
@@ -58,7 +59,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`\n🚀 AmatuEdda running on port ${PORT}`);
   console.log(`✅ Database: ${process.env.SUPABASE_URL ? 'Connected' : 'Not configured'}`);
